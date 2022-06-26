@@ -362,7 +362,9 @@ def predict_structure(
         prediction_times.append(prediction_time)
 
         mean_plddt = np.mean(prediction_result["plddt"][:seq_len])
-        mean_ptm = prediction_result["ptm"]
+        mean_ptm = None
+        if "ptm" in prediction_result:
+            mean_ptm = prediction_result["ptm"]
         if rank_by == "plddt":
             mean_score = mean_plddt
         else:
@@ -427,15 +429,20 @@ def predict_structure(
         representations.append(prediction_result.get("representations", None))
         unrelaxed_pdb_lines.append(protein_lines)
         plddts.append(prediction_result["plddt"][:seq_len])
-        ptmscore.append(prediction_result["ptm"])
-        if model_type.startswith("AlphaFold2-multimer"):
+        if "ptm" in prediction_result:
+            ptmscore.append(prediction_result["ptm"])
+        if "iptm" in prediction_result:
             iptmscore.append(prediction_result["iptm"])
-        max_paes.append(prediction_result["max_predicted_aligned_error"].item())
+        if "max_predicted_aligned_error" in prediction_result:
+            max_paes.append(prediction_result["max_predicted_aligned_error"].item())
         paes_res = []
 
-        for i in range(seq_len):
-            paes_res.append(prediction_result["predicted_aligned_error"][i][:seq_len])
-        paes.append(paes_res)
+        if "predicted_aligned_error" in prediction_result:
+            for i in range(seq_len):
+                paes_res.append(
+                    prediction_result["predicted_aligned_error"][i][:seq_len]
+                )
+            paes.append(paes_res)
 
         if do_relax:
             patch_openmm()
@@ -537,26 +544,33 @@ def predict_structure(
         scores_file = result_dir.joinpath(
             f"{prefix}_unrelaxed_rank_{n + 1}_{model_names[key]}_scores.json"
         )
-        with scores_file.open("w") as fp:
-            # We use astype(np.float64) to prevent very long stringified floats from float imprecision
-            scores = {
-                "max_pae": max_paes[key],
-                "pae": np.around(np.asarray(paes[key]).astype(np.float64), 2).tolist(),
-                "plddt": np.around(np.asarray(plddts[key]), 2).tolist(),
-                "ptm": np.around(ptmscore[key], 2).item(),
-            }
-            if model_type.startswith("AlphaFold2-multimer"):
-                scores["iptm"] = np.around(iptmscore[key], 2).item()
-            json.dump(scores, fp)
 
         out[key] = {
             "plddt": np.asarray(plddts[key]),
-            "pae": np.asarray(paes[key]),
-            "max_pae": max_paes[key],
-            "pTMscore": ptmscore[key],
             "model_name": model_names[key],
             "representations": representations[key],
         }
+
+        with scores_file.open("w") as fp:
+            # We use astype(np.float64) to prevent very long stringified floats from float imprecision
+            scores = {
+                "plddt": np.around(np.asarray(plddts[key]), 2).tolist(),
+            }
+            if "max_predicted_aligned_error" in prediction_result:
+                scores["max_pae"] = max_paes[key]
+                out[key]["max_pae"] = max_paes[key]
+            if "predicted_aligned_error" in prediction_result:
+                scores["pae"] = np.around(
+                    np.asarray(paes[key]).astype(np.float64), 2
+                ).tolist()
+                out[key]["pae"] = np.asarray(paes[key])
+            if "ptm" in prediction_result:
+                scores["ptm"] = np.around(ptmscore[key], 2).item()
+                out[key]["pTMscore"] = ptmscore[key]
+            if "iptm" in prediction_result:
+                scores["iptm"] = np.around(iptmscore[key], 2).item()
+            json.dump(scores, fp)
+
     return out, model_rank
 
 
@@ -1213,11 +1227,17 @@ def run(
     model_type = set_model_type(is_complex, model_type)
 
     if model_type == "AlphaFold2-multimer-v1":
+        model_type_extension = ""
         model_extension = "_multimer"
     elif model_type == "AlphaFold2-multimer-v2":
+        model_type_extension = ""
         model_extension = "_multimer_v2"
     elif model_type == "AlphaFold2-ptm":
+        model_type_extension = ""
         model_extension = "_ptm"
+    elif model_type == "OpenFold-v1":
+        model_type_extension = "_openfold_v1"
+        model_extension = ""
     else:
         raise ValueError(f"Unknown model_type {model_type}")
 
@@ -1274,6 +1294,7 @@ def run(
         num_recycles,
         num_ensemble,
         model_order,
+        model_type_extension,
         model_extension,
         data_dir,
         recompile_all_models,
@@ -1392,7 +1413,6 @@ def run(
         # Write representations if needed
 
         representation_files = []
-
         if save_representations:
             for i, key in enumerate(model_rank):
                 out = outs[key]
@@ -1414,11 +1434,6 @@ def run(
                     )
                     np.save(pair_filename, pair_representation)
 
-        # Write alphafold-db format (PAE)
-        alphafold_pae_file = result_dir.joinpath(
-            jobname + "_predicted_aligned_error_v1.json"
-        )
-        alphafold_pae_file.write_text(get_pae_json(outs[0]["pae"], outs[0]["max_pae"]))
         num_alignment = (
             int(input_features["num_alignments"])
             if model_type.startswith("AlphaFold2-multimer")
@@ -1434,28 +1449,43 @@ def run(
         coverage_png = result_dir.joinpath(jobname + "_coverage.png")
         msa_plot.savefig(str(coverage_png))
         msa_plot.close()
-        paes_plot = plot_paes(
-            [outs[k]["pae"] for k in model_rank], Ls=query_sequence_len_array, dpi=dpi
-        )
-        pae_png = result_dir.joinpath(jobname + "_PAE.png")
-        paes_plot.savefig(str(pae_png))
-        paes_plot.close()
+
         plddt_plot = plot_plddts(
             [outs[k]["plddt"] for k in model_rank], Ls=query_sequence_len_array, dpi=dpi
         )
         plddt_png = result_dir.joinpath(jobname + "_plddt.png")
         plddt_plot.savefig(str(plddt_png))
         plddt_plot.close()
+
         result_files = [
             bibtex_file,
             config_out_file,
-            alphafold_pae_file,
             result_dir.joinpath(jobname + ".a3m"),
-            pae_png,
             coverage_png,
             plddt_png,
             *representation_files,
         ]
+
+        if "pae" in outs[model_rank[0]]:
+            paes_plot = plot_paes(
+                [outs[k]["pae"] for k in model_rank],
+                Ls=query_sequence_len_array,
+                dpi=dpi,
+            )
+            pae_png = result_dir.joinpath(jobname + "_PAE.png")
+            result_files.append(pae_png)
+            paes_plot.savefig(str(pae_png))
+            paes_plot.close()
+
+            # Write alphafold-db format (PAE)
+            alphafold_pae_file = result_dir.joinpath(
+                jobname + "_predicted_aligned_error_v1.json"
+            )
+            result_files.append(alphafold_pae_file)
+            alphafold_pae_file.write_text(
+                get_pae_json(outs[0]["pae"], outs[0]["max_pae"])
+            )
+
         if use_templates:
             templates_file = result_dir.joinpath(
                 jobname + "_template_domain_names.json"
@@ -1589,6 +1619,7 @@ def main():
             "AlphaFold2-ptm",
             "AlphaFold2-multimer-v1",
             "AlphaFold2-multimer-v2",
+            "OpenFold-v1",
         ],
     )
 

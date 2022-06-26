@@ -120,11 +120,11 @@ def test_zip(pytestconfig, caplog, tmp_path, prediction_test):
     expect_zip = [
         "cite.bibtex",
         "config.json",
-        "5AWL_1_predicted_aligned_error_v1.json",
         "5AWL_1.a3m",
-        "5AWL_1_PAE.png",
         "5AWL_1_coverage.png",
         "5AWL_1_plddt.png",
+        "5AWL_1_PAE.png",
+        "5AWL_1_predicted_aligned_error_v1.json",
         "5AWL_1_unrelaxed_rank_1_model_1.pdb",
         "5AWL_1_unrelaxed_rank_1_model_1_scores.json",
     ]

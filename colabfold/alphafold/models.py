@@ -15,6 +15,7 @@ def load_models_and_params(
     num_recycle: int = 3,
     num_ensemble: int = 1,
     model_order: Optional[List[int]] = None,
+    model_type_extension: Optional[str] = "",
     model_suffix: str = "_ptm",
     data_dir: Path = Path("."),
     recompile_all_models: bool = False,
@@ -52,7 +53,8 @@ def load_models_and_params(
                 break
             model_name = f"model_{model_number}"
             params = data.get_model_haiku_params(
-                model_name=model_name + model_suffix, data_dir=str(data_dir)
+                model_name=model_name + model_suffix + model_type_extension,
+                data_dir=str(data_dir),
             )
             model_config = config.model_config(model_name + model_suffix)
             model_config.model.stop_at_score = float(stop_at_score)
@@ -61,7 +63,7 @@ def load_models_and_params(
                 max_msa_clusters, max_extra_msa = [int(x) for x in max_msa.split(":")]
                 model_config.data.eval.max_msa_clusters = max_msa_clusters
                 model_config.data.common.max_extra_msa = max_extra_msa
-            if model_suffix == "_ptm":
+            if model_suffix == "_openfold_v1" or model_suffix == "_ptm":
                 model_config.data.common.num_recycle = num_recycle
                 model_config.model.num_recycle = num_recycle
                 model_config.data.eval.num_ensemble = num_ensemble
@@ -98,7 +100,7 @@ def load_models_and_params(
                     ]
                     model_config.data.eval.max_msa_clusters = max_msa_clusters
                     model_config.data.common.max_extra_msa = max_extra_msa
-                if model_suffix == "_ptm":
+                if model_suffix == "_openfold_v1" or model_suffix == "_ptm":
                     model_config.data.common.num_recycle = num_recycle
                     model_config.model.num_recycle = num_recycle
                     model_config.data.eval.num_ensemble = num_ensemble
@@ -118,7 +120,8 @@ def load_models_and_params(
                 )
             model_name = f"model_{model_number}"
             params = data.get_model_haiku_params(
-                model_name=model_name + model_suffix, data_dir=str(data_dir)
+                model_name=model_name + model_suffix + model_type_extension,
+                data_dir=str(data_dir),
             )
             # keep only parameters of compiled model
             params_subset = {}
