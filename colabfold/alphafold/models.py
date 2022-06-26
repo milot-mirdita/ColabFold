@@ -113,7 +113,7 @@ def load_models_and_params(
                 model_runner = model.RunModel(
                     model_config,
                     data.get_model_haiku_params(
-                        model_name="model_" + str(model_number) + model_suffix,
+                        model_name="model_" + str(model_number) + model_suffix + model_type_extension,
                         data_dir=str(data_dir),
                     ),
                     is_training=training,
