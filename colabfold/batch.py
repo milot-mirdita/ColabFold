@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 
 os.environ["TF_FORCE_UNIFIED_MEMORY"] = "1"
 os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "2.0"
@@ -13,10 +14,21 @@ import sys
 import time
 import zipfile
 import shutil
+import subprocess
 
 from argparse import ArgumentParser
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union, TYPE_CHECKING
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Union,
+    Sequence,
+    TYPE_CHECKING,
+)
 from io import StringIO
 
 import importlib_metadata
@@ -48,6 +60,7 @@ from alphafold.data import (
     templates,
 )
 from alphafold.data.tools import hhsearch
+from alphafold.data.tools.utils import tmpdir_manager
 from colabfold.citations import write_bibtex
 from colabfold.download import default_data_dir, download_alphafold_params
 from colabfold.utils import (
@@ -146,27 +159,142 @@ def mk_mock_template(
     return template_features
 
 
+from alphafold.data.templates import (
+    TemplateSearchResult,
+    TEMPLATE_FEATURES,
+    _process_single_hit,
+)
+from alphafold.data.parsers import TemplateHit
+from datetime import datetime
+
+
+def get_local_templates(
+    query_sequence: str,
+    hits: Sequence[TemplateHit],
+    max_hits: int,
+    kalign_binary_path: str,
+    max_template_date: str,
+    local_templates_path: str,
+) -> TemplateSearchResult:
+    """Computes the templates for given query sequence (more details above)."""
+    logging.info("Searching for template for: %s", query_sequence)
+
+    try:
+        max_template_date = datetime.strptime(max_template_date, "%Y-%m-%d")
+    except ValueError:
+        raise ValueError("max_template_date must be set and have format YYYY-MM-DD.")
+
+    template_features = {}
+    for template_feature_name in TEMPLATE_FEATURES:
+        template_features[template_feature_name] = []
+
+    num_hits = 0
+    errors = []
+    warnings = []
+
+    for hit in sorted(hits, key=lambda x: x.sum_probs, reverse=True):
+        # We got all the templates we wanted, stop processing hits.
+        if num_hits >= max_hits:
+            break
+
+        mmcif_dir = os.path.join(local_templates_path, hit.pdb_id[1:3])
+        result = _process_single_hit(
+            query_sequence=query_sequence,
+            hit=hit,
+            mmcif_dir=mmcif_dir,
+            max_template_date=max_template_date,
+            release_dates={},
+            obsolete_pdbs={},
+            strict_error_check=False,
+            kalign_binary_path=kalign_binary_path,
+        )
+
+        if result.error:
+            errors.append(result.error)
+
+        # There could be an error even if there are some results, e.g. thrown by
+        # other unparsable chains in the same mmCIF file.
+        if result.warning:
+            warnings.append(result.warning)
+
+        if result.features is None:
+            logging.info(
+                "Skipped invalid hit %s, error: %s, warning: %s",
+                hit.name,
+                result.error,
+                result.warning,
+            )
+        else:
+            # Increment the hit counter, since we got features out of this hit.
+            num_hits += 1
+            for k in template_features:
+                template_features[k].append(result.features[k])
+
+    for name in template_features:
+        if num_hits > 0:
+            template_features[name] = np.stack(template_features[name], axis=0).astype(
+                TEMPLATE_FEATURES[name]
+            )
+        else:
+            # Make sure the feature has correct dtype even if empty.
+            template_features[name] = np.array([], dtype=TEMPLATE_FEATURES[name])
+
+    return TemplateSearchResult(
+        features=template_features, errors=errors, warnings=warnings
+    )
+
+
 def mk_template(
-    a3m_lines: str, template_path: str, query_sequence: str
+    a3m_lines: str,
+    template_path: Union[str, List[str]],
+    query_sequence: str,
+    local_pdb_path: str,
+    local_pdb70_path: str,
 ) -> Dict[str, Any]:
-    template_featurizer = templates.HhsearchHitFeaturizer(
-        mmcif_dir=template_path,
-        max_template_date="2100-01-01",
-        max_hits=20,
-        kalign_binary_path="kalign",
-        release_dates_path=None,
-        obsolete_pdbs_path=None,
-    )
+    if local_pdb_path and local_pdb70_path:
+        with tmpdir_manager() as tmpdir:
+            pdb70_path = os.path.join(local_pdb70_path, "pdb70")
+            accession_file = os.path.join(tmpdir, "pdb70.tsv")
+            with open(accession_file, "w") as f:
+                f.write("\n".join(template_path.sort()))
+            cmd = [
+                "ffindex_order",
+                accession_file,
+                pdb70_path,
+                os.path.join(tmpdir, "pdb70"),
+            ]
+            subprocess.run(cmd, check=True, Timeout=None)
 
-    hhsearch_pdb70_runner = hhsearch.HHSearch(
-        binary_path="hhsearch", databases=[f"{template_path}/pdb70"]
-    )
-
-    hhsearch_result = hhsearch_pdb70_runner.query(a3m_lines)
-    hhsearch_hits = pipeline.parsers.parse_hhr(hhsearch_result)
-    templates_result = template_featurizer.get_templates(
-        query_sequence=query_sequence, hits=hhsearch_hits
-    )
+            hhsearch_pdb70_runner = hhsearch.HHSearch(
+                binary_path="hhsearch", databases=[os.path.join(tmpdir, "pdb70")]
+            )
+            hhsearch_result = hhsearch_pdb70_runner.query(a3m_lines)
+            hhsearch_hits = pipeline.parsers.parse_hhr(hhsearch_result)
+            templates_result = get_local_templates(
+                query_sequence=query_sequence,
+                hits=hhsearch_hits,
+                max_hits=20,
+                kalign_binary_path="kalign",
+                max_template_date="2021-01-01",
+                local_templates_path=local_pdb_path,
+            )
+    else:
+        hhsearch_pdb70_runner = hhsearch.HHSearch(
+            binary_path="hhsearch", databases=[os.path.join(template_path, "pdb70")]
+        )
+        hhsearch_result = hhsearch_pdb70_runner.query(a3m_lines)
+        hhsearch_hits = pipeline.parsers.parse_hhr(hhsearch_result)
+        template_featurizer = templates.HhsearchHitFeaturizer(
+            mmcif_dir=template_path,
+            max_template_date="2100-01-01",
+            max_hits=20,
+            kalign_binary_path="kalign",
+            release_dates_path=None,
+            obsolete_pdbs_path=None,
+        )
+        templates_result = template_featurizer.get_templates(
+            query_sequence=query_sequence, hits=hhsearch_hits
+        )
     return dict(templates_result.features)
 
 
@@ -745,6 +873,8 @@ def get_msa_and_templates(
     use_templates: bool,
     custom_template_path: str,
     pair_mode: str,
+    local_template_path: str = None,
+    local_pdb70_path: str = None,
     host_url: str = DEFAULT_API_SERVER,
 ) -> Tuple[
     Optional[List[str]], Optional[List[str]], List[str], List[int], List[Dict[str, Any]]
@@ -767,11 +897,15 @@ def get_msa_and_templates(
 
     template_features = []
     if use_templates:
+        template_type = True
+        if local_template_path is not None and local_pdb70_path is not None:
+            template_type = "local"
+
         a3m_lines_mmseqs2, template_paths = run_mmseqs2(
             query_seqs_unique,
             str(result_dir.joinpath(jobname)),
             use_env,
-            use_templates=True,
+            use_templates=template_type,
             host_url=host_url,
         )
         if custom_template_path is not None:
@@ -790,6 +924,8 @@ def get_msa_and_templates(
                         a3m_lines_mmseqs2[index],
                         template_paths[index],
                         query_seqs_unique[index],
+                        local_template_path,
+                        local_pdb70_path,
                     )
                     if len(template_feature["template_domain_names"]) == 0:
                         template_feature = mk_mock_template(query_seqs_unique[index])
@@ -1188,6 +1324,8 @@ def run(
     msa_mode: str = "MMseqs2 (UniRef+Environmental)",
     use_templates: bool = False,
     custom_template_path: str = None,
+    local_template_path: str = None,
+    local_pdb70_path: str = None,
     use_amber: bool = False,
     keep_existing_results: bool = True,
     rank_by: str = "auto",
@@ -1341,6 +1479,8 @@ def run(
                         use_templates,
                         custom_template_path,
                         pair_mode,
+                        local_template_path,
+                        local_pdb70_path,
                         host_url,
                     )[4]
             else:
@@ -1358,6 +1498,8 @@ def run(
                     use_templates,
                     custom_template_path,
                     pair_mode,
+                    local_template_path,
+                    local_pdb70_path,
                     host_url,
                 )
             msa = msa_to_str(
@@ -1634,6 +1776,20 @@ def main():
         help="Directory with pdb files to be used as input",
     )
 
+    parser.add_argument(
+        "--local-template-path",
+        type=str,
+        default=None,
+        help="Directory with PDB mirror",
+    )
+
+    parser.add_argument(
+        "--local-pdb70-path",
+        type=str,
+        default=None,
+        help="Directory with PDB70 database",
+    )
+
     parser.add_argument("--env", default=False, action="store_true")
     parser.add_argument(
         "--cpu",
@@ -1720,6 +1876,13 @@ def main():
 
     args = parser.parse_args()
 
+    if (not args.local_template_path and args.local_pdb70_path) or (
+        args.local_template_path and not args.local_pdb70_path
+    ):
+        parser.error(
+            "Both --local-template-path and --local-pdb70-path must be set to use local templates"
+        )
+
     setup_logging(Path(args.results).joinpath("log.txt"))
 
     version = importlib_metadata.version("colabfold")
@@ -1759,6 +1922,8 @@ def main():
         result_dir=args.results,
         use_templates=args.templates,
         custom_template_path=args.custom_template_path,
+        local_template_path=args.local_template_path,
+        local_pdb70_path=args.local_pdb70_path,
         use_amber=args.amber,
         msa_mode=args.msa_mode,
         model_type=model_type,

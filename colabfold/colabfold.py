@@ -10,7 +10,7 @@ import hashlib
 import tarfile
 import time
 import os
-from typing import Tuple, List
+from typing import Tuple, List, Union
 
 import random
 from tqdm import tqdm
@@ -67,7 +67,7 @@ def clear_mem(device="gpu"):
 TQDM_BAR_FORMAT = '{l_bar}{bar}| {n_fmt}/{total_fmt} [elapsed: {elapsed} remaining: {remaining}]'
 
 def run_mmseqs2(x, prefix, use_env=True, use_filter=True,
-                use_templates=False, filter=None, use_pairing=False,
+                use_templates: Union[str, bool] = False, filter=None, use_pairing=False,
                 host_url="https://api.colabfold.com") -> Tuple[List[str], List[str]]:
   submission_endpoint = "ticket/pair" if use_pairing else "ticket/msa"
 
@@ -228,14 +228,17 @@ def run_mmseqs2(x, prefix, use_env=True, use_filter=True,
 
     template_paths = {}
     for k,TMPL in templates.items():
-      TMPL_PATH = f"{prefix}_{mode}/templates_{k}"
-      if not os.path.isdir(TMPL_PATH):
-        os.mkdir(TMPL_PATH)
-        TMPL_LINE = ",".join(TMPL[:20])
-        os.system(f"curl -s -L {host_url}/template/{TMPL_LINE} | tar xzf - -C {TMPL_PATH}/")
-        os.system(f"cp {TMPL_PATH}/pdb70_a3m.ffindex {TMPL_PATH}/pdb70_cs219.ffindex")
-        os.system(f"touch {TMPL_PATH}/pdb70_cs219.ffdata")
-      template_paths[k] = TMPL_PATH
+      if use_templates == "local":
+        template_paths[k] = TMPL[:20]
+      else:
+        TMPL_PATH = f"{prefix}_{mode}/templates_{k}"
+        if not os.path.isdir(TMPL_PATH):
+          os.mkdir(TMPL_PATH)
+          TMPL_LINE = ",".join(TMPL[:20])
+          os.system(f"curl -s -L {host_url}/template/{TMPL_LINE} | tar xzf - -C {TMPL_PATH}/")
+          os.system(f"cp {TMPL_PATH}/pdb70_a3m.ffindex {TMPL_PATH}/pdb70_cs219.ffindex")
+          os.system(f"touch {TMPL_PATH}/pdb70_cs219.ffdata")
+        template_paths[k] = TMPL_PATH
 
   # gather a3m lines
   a3m_lines = {}
