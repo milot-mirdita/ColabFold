@@ -559,11 +559,11 @@ def main():
                 if len(query_seqs_cardinality) >= 1: # hack
                     paired_msa = []
                 for seq in query_sequences:
-                    if keep_unpaired:
-                        with args.base.joinpath(f"{id}.a3m").open("r") as f:
-                            unpaired_msa.append(f.read())
-                        if args.af3_json:
-                            args.base.joinpath(f"{id}.a3m").unlink()
+                    # if keep_unpaired:
+                    with args.base.joinpath(f"{id}.a3m").open("r") as f:
+                        unpaired_msa.append(f.read())
+                    if args.af3_json:
+                        args.base.joinpath(f"{id}.a3m").unlink()
                     if keep_paired:
                         if args.use_env_pairing:
                             with open(args.base.joinpath(f"{id}.paired.a3m"), 'a') as file_pair:
