@@ -87,6 +87,7 @@ from Bio.PDB.PDBIO import Select
 # logging settings
 logger = logging.getLogger(__name__)
 from jax import local_devices
+import jax.numpy as jnp
 
 # from jax 0.4.6, jax._src.lib.xla_bridge moved to jax._src.xla_bridge
 # suppress warnings: Unable to initialize backend 'rocm' or 'tpu'
@@ -487,9 +488,9 @@ def predict_structure(
                     del unrelaxed_protein
 
                 # hack to skip very low ranking hits at recycle 0
+                result["real_ranking_confidence"] = result["ranking_confidence"]
                 if recycles == 0 and result["iptm"] <= 0.1:
-                    result["real_ranking_confidence"] = result["ranking_confidence"]
-                    result["ranking_confidence"] = 101.0
+                    result["ranking_confidence"] = jnp.array(101.0, dtype=jnp.float16)
 
             return_representations = save_all or save_single_representations or save_pair_representations
 
