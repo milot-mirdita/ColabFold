@@ -487,7 +487,7 @@ def predict_structure(
                     del unrelaxed_protein
 
                 # hack to skip very low ranking hits at recycle 0
-                if r == 0 and result["iptm"] <= 0.1:
+                if recycles == 0 and result["iptm"] <= 0.1:
                     result["real_ranking_confidence"] = result["ranking_confidence"]
                     result["ranking_confidence"] = 101.0
 
