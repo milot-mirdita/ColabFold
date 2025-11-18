@@ -486,6 +486,11 @@ def predict_structure(
                             pickle.dump(result, handle)
                     del unrelaxed_protein
 
+                # hack to skip very low ranking hits at recycle 0
+                if r == 0 and result["iptm"] <= 0.1:
+                    result["real_ranking_confidence"] = result["ranking_confidence"]
+                    result["ranking_confidence"] = 101.0
+
             return_representations = save_all or save_single_representations or save_pair_representations
 
             # predict
@@ -494,6 +499,9 @@ def predict_structure(
                 random_seed=seed,
                 return_representations=return_representations,
                 callback=callback)
+
+            # restore real ranking confidence
+            result["ranking_confidence"] = result["real_ranking_confidence"]
 
             if calc_extra_ptm and 'predicted_aligned_error' in result.keys():
                 extra_ptm_output = extra_ptm.get_chain_and_interface_metrics(result, input_features['asym_id'],
