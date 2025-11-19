@@ -399,6 +399,7 @@ def predict_structure(
     random_seed: int = 0,
     num_seeds: int = 1,
     stop_at_score: float = 100,
+    iptm_early_filter: Union[float, None] = None,
     prediction_callback: Callable[[Any, Any, Any, Any, Any], Any] = None,
     use_gpu_relax: bool = False,
     save_all: bool = False,
@@ -492,7 +493,7 @@ def predict_structure(
 
                 # hack to skip very low ranking hits at recycle 0
                 result["real_ranking_confidence"] = result["ranking_confidence"]
-                if recycles == 0 and result["iptm"] <= 0.1:
+                if iptm_early_filter is not None and recycles == 0 and result["iptm"] <= iptm_early_filter:
                     result["ranking_confidence"] = jnp.array(101.0, dtype=jnp.float16)
 
             return_representations = save_all or save_single_representations or save_pair_representations
@@ -1218,6 +1219,7 @@ def run(
     use_dropout: bool = False,
     use_gpu_relax: bool = False,
     stop_at_score: float = 100,
+    iptm_early_filter: Union[float, None] = None,
     dpi: int = 200,
     max_seq: Optional[int] = None,
     max_extra_seq: Optional[int] = None,
@@ -1354,6 +1356,7 @@ def run(
         "host_url": host_url,
         "user_agent": user_agent,
         "stop_at_score": stop_at_score,
+        "iptm_early_filter": iptm_early_filter,
         "random_seed": random_seed,
         "num_seeds": num_seeds,
         "recompile_padding": recompile_padding,
@@ -1580,6 +1583,7 @@ def run(
                     relax_max_outer_iterations=relax_max_outer_iterations,
                     rank_by=rank_by,
                     stop_at_score=stop_at_score,
+                    iptm_early_filter=iptm_early_filter,
                     prediction_callback=prediction_callback,
                     use_gpu_relax=use_gpu_relax,
                     random_seed=random_seed,
@@ -2023,6 +2027,12 @@ def main():
         default=100,
     )
     output_group.add_argument(
+        "--iptm-early-filter",
+        help="Skip further recycles if first recyle ipTM score < threshold.",
+        type=float,
+        default=None,
+    )
+    output_group.add_argument(
         "--jobname-prefix",
         help="If set, the jobname will be prefixed with the given string and a running number, instead of the input headers/accession.",
         type=str,
@@ -2229,6 +2239,7 @@ def main():
         random_seed=args.random_seed,
         num_seeds=args.num_seeds,
         stop_at_score=args.stop_at_score,
+        iptm_early_filter=args.iptm_early_filter,
         recompile_padding=args.recompile_padding,
         zip_results=args.zip,
         save_single_representations=args.save_single_representations,
