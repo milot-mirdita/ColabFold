@@ -1,4 +1,4 @@
-ARG MMSEQS_HASH=archive/cf9e9f2605b15436eea129dc42961ec411e57af4
+ARG MMSEQS_HASH=archive/8cc5ce367b5638c4306c2d7cfc652dd099a4643f
 ARG downloader=${TARGETARCH}_downloader
 
 FROM scratch AS amd64_downloader
