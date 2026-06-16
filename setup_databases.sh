@@ -13,6 +13,13 @@ PDB_AWS_SNAPSHOT="20240101"
 
 UNIREF30DB="${UNIREF30DB:-"uniref30_2302"}"
 CFDB="${CFDB:-"colabfold_envdb_202108"}"
+# riboseek AF3 nucleotide database
+RNADB="${RNADB:-"rna"}"
+AF3_DB_SERVER="${AF3_DB_SERVER:-"https://storage.googleapis.com/alphafold-databases/v3.0"}"
+RNA_DBS="rnacentral_active_seq_id_90_cov_80_linclust nt_rna_2023_02_23_clust_seq_id_90_cov_80_rep_seq rfam_14_9_clust_seq_id_90_cov_80_rep_seq"
+if [ "${DEBUG_MINI_DB}" = "1" ]; then
+  RNA_DBS="rfam_14_9_clust_seq_id_90_cov_80_rep_seq"
+fi
 MMSEQS_NO_INDEX=${MMSEQS_NO_INDEX:-}
 DOWNLOADS_ONLY=${DOWNLOADS_ONLY:-}
 # download prebuilt MMseqs2 databases that support both CPU and GPU
@@ -33,6 +40,10 @@ fail() {
 
 if ! hasCommand mmseqs; then
   fail "mmseqs command not found in PATH. Please install MMseqs2."
+fi
+
+if ! hasCommand zstd; then
+  fail "zstd command not found in PATH. Please install zstd."
 fi
 
 STRATEGY=""
@@ -91,6 +102,13 @@ if [ ! -f DOWNLOADS_READY ]; then
   if [ ! -f SKIP_TEMPLATES ]; then
     downloadFile "https://opendata.mmseqs.org/colabfold/pdb100_foldseek_230517.tar.gz" "pdb100_foldseek_230517.tar.gz"
   fi
+  # AF3 RNA fastas for the riboseek
+  for NAME in $RNA_DBS; do
+    if [ ! -f "${NAME}.fasta" ]; then
+      downloadFile "${AF3_DB_SERVER}/${NAME}.fasta.zst" "${NAME}.fasta.zst"
+      zstd --decompress --rm "${NAME}.fasta.zst"
+    fi
+  done
   touch DOWNLOADS_READY
 fi
 
@@ -215,4 +233,26 @@ fi
 if [ ! -f PDB100_READY ] && [ ! -f SKIP_TEMPLATES ]; then
   tar -xzvf pdb100_foldseek_230517.tar.gz pdb100_a3m.ffdata pdb100_a3m.ffindex
   touch PDB100_READY
+fi
+
+if [ ! -f RIBOSEEK_READY ]; then
+  if ! hasCommand riboseek; then
+    fail "riboseek command not found in PATH. Please install riboseek."
+  fi
+  FASTAS=""
+  for NAME in $RNA_DBS; do
+    FASTAS="${FASTAS} ${NAME}.fasta"
+  done
+  if [ -n "${GPU}" ]; then
+    # GPU search needs a padded sequence database
+    riboseek createdb ${FASTAS} "${RNADB}_db_tmp"
+    riboseek makepaddedseqdb "${RNADB}_db_tmp" "${RNADB}_db"
+    riboseek rmdb "${RNADB}_db_tmp"
+  else
+    riboseek createdb ${FASTAS} "${RNADB}_db"
+  fi
+  if [ -z "$MMSEQS_NO_INDEX" ]; then
+    riboseek createindex "${RNADB}_db" tmp_riboseek --remove-tmp-files 1 ${GPU_INDEX_PAR}
+  fi
+  touch RIBOSEEK_READY
 fi

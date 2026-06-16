@@ -67,6 +67,8 @@
             "uniref"        : "~databases/uniref30_2302_db",
             "pdb"           : "~databases/pdb100_230517",
             "environmental" : "~databases/colabfold_envdb_202108_db",
+            // riboseek nucleotide database
+            "nucl"          : "~databases/rna_db",
             // not used in public MSA server
 			// "environmentalpair" : "~databases/spire_ctg10_2401_db",
             // paths for templates
@@ -76,6 +78,8 @@
         },
         // path to mmseqs binary
         "mmseqs"       : "mmseqs",
+        // path to riboseek binary
+        "riboseek"     : "riboseek",
     },
     // connection details for redis database, not used in -local mode
     "redis" : {

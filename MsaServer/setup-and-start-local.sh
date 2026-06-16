@@ -24,10 +24,11 @@ fi
 
 # set which commits to use
 MMSEQS_COMMIT=${1:-05ae20cbc628d9911ad0aa421fba029cc457b76e}
-BACKEND_COMMIT=${2:-01365aa4735539ba95b417f73fb5326c77410394}
+BACKEND_COMMIT=${2:-c8b5c5be72eba6d0c1d2cb4a7af649380eac7935}
+RIBOSEEK_COMMIT=${3:-c9086fcfaa15aebdb664ad124d3cf51c9086a728}
 
 # check if all dependencies are there
-for i in curl aria2c rsync aws; do
+for i in curl aria2c rsync aws zstd; do
   if ! command -v "${i}" > /dev/null 2>&1; then
     echo "${i} is not installed, please install it first"
     exit 1
@@ -70,6 +71,16 @@ else
   curl -s -o- https://mmseqs.com/archive/${MMSEQS_COMMIT}/mmseqs-${OS}-${ARCH}.tar.gz | tar -xzf - mmseqs/bin/mmseqs
 fi
 
+# riboseek
+if [ -x ./riboseek/bin/riboseek ]; then
+  if [ $(./riboseek/bin/riboseek version) != ${RIBOSEEK_COMMIT} ]; then
+    rm -rf -- riboseek
+    curl -s -o- https://mmseqs.com/archive/${RIBOSEEK_COMMIT}/riboseek-${OS}-${ARCH}.tar.gz | tar -xzf - riboseek/bin/riboseek
+  fi
+else
+  curl -s -o- https://mmseqs.com/archive/${RIBOSEEK_COMMIT}/riboseek-${OS}-${ARCH}.tar.gz | tar -xzf - riboseek/bin/riboseek
+fi
+
 # check that the correct mmseqs commit is there
 if [ -x ./mmseqs-server/bin/mmseqs-server ]; then
   # download it again if its a different commit
@@ -82,8 +93,8 @@ else
 fi
 
 
-# mmseqs needs to be in PATH for the setup_databases script to work
-PATH="${SCRIPT_DIR}/mmseqs/bin:$PATH"
+# mmseqs and riboseek need to be in PATH for the setup_databases script to work
+PATH="${SCRIPT_DIR}/mmseqs/bin:${SCRIPT_DIR}/riboseek/bin:$PATH"
 
 # This downloads a tiny swissprot based database for testing only
 #export DEBUG_MINI_DB=1
