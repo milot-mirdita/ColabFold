@@ -25,7 +25,7 @@ fi
 # set which commits to use
 MMSEQS_COMMIT=${1:-05ae20cbc628d9911ad0aa421fba029cc457b76e}
 BACKEND_COMMIT=${2:-c8b5c5be72eba6d0c1d2cb4a7af649380eac7935}
-RIBOSEEK_COMMIT=${3:-c9086fcfaa15aebdb664ad124d3cf51c9086a728}
+RIBOSEEK_COMMIT=${3:-d08d3bf375f3a95a1ed5dac4237f47a1b1bb29ad}
 
 # check if all dependencies are there
 for i in curl aria2c rsync aws zstd; do
