@@ -246,8 +246,10 @@ if [ ! -f RIBOSEEK_READY ]; then
   if [ -n "${GPU}" ]; then
     # GPU search needs a padded sequence database
     riboseek createdb ${FASTAS} "${RNADB}_db_tmp"
-    riboseek makepaddedseqdb "${RNADB}_db_tmp" "${RNADB}_db"
+    riboseek splitsequence "${RNADB}_db_tmp" "${RNADB}_db_split" --max-seq-len 10000 --headers-split-mode 1
+    riboseek makepaddedseqdb "${RNADB}_db_split" "${RNADB}_db"
     riboseek rmdb "${RNADB}_db_tmp"
+    riboseek rmdb "${RNADB}_db_split"
   else
     riboseek createdb ${FASTAS} "${RNADB}_db"
   fi
